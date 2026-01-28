@@ -81,9 +81,10 @@ let relayerKeypair: Keypair;
 try {
   const secretKey = process.env.RELAYER_SECRET_KEY;
   if (secretKey) {
-    relayerKeypair = Keypair.fromSecretKey(
-      Uint8Array.from(JSON.parse(secretKey))
-    );
+    // Support both JSON array "[1,2,3]" and plain comma-separated "1,2,3"
+    const cleaned = secretKey.trim().replace(/^\[|\]$/g, '');
+    const bytes = cleaned.split(',').map((s: string) => parseInt(s.trim(), 10));
+    relayerKeypair = Keypair.fromSecretKey(Uint8Array.from(bytes));
     logger.info(`Relayer wallet: ${relayerKeypair.publicKey.toBase58()}`);
   } else {
     logger.warn('No RELAYER_SECRET_KEY provided, using random keypair (for testing only)');
