@@ -14,7 +14,6 @@ import { Connection, Keypair, PublicKey, Transaction } from '@solana/web3.js';
 import * as snarkjs from 'snarkjs';
 import winston from 'winston';
 import dotenv from 'dotenv';
-import bs58 from 'bs58';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -89,9 +88,10 @@ try {
       const cleaned = trimmed.replace(/^\[|\]$/g, '');
       keyBytes = Uint8Array.from(cleaned.split(',').map((s: string) => parseInt(s.trim(), 10)));
     } else {
-      // Base58 format
-      keyBytes = bs58.decode(trimmed);
+      // Base64 format (built-in, no extra dependency)
+      keyBytes = Uint8Array.from(Buffer.from(trimmed, 'base64'));
     }
+    logger.info(`Parsed key: ${keyBytes.length} bytes`);
     relayerKeypair = Keypair.fromSecretKey(keyBytes);
     logger.info(`Relayer wallet: ${relayerKeypair.publicKey.toBase58()}`);
   } else {
