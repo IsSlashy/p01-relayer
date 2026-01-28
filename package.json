@@ -1,6 +1,6 @@
 {
   "name": "@p01/relayer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "ZK Shielded Pool Relayer Service for gasless transactions",
   "main": "dist/index.js",
   "scripts": {

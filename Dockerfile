@@ -1,8 +1,11 @@
 # P-01 ZK Relayer Service
 # Generates Groth16 proofs for mobile/extension clients
-# Cache bust: 2026-01-28-v2
 
 FROM node:20-slim
+
+# Force cache invalidation
+ARG CACHEBUST=1
+RUN echo "Cache bust: $CACHEBUST"
 
 WORKDIR /app
 
