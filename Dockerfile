@@ -1,5 +1,6 @@
 # P-01 ZK Relayer Service
 # Generates Groth16 proofs for mobile/extension clients
+# Cache bust: 2026-01-28-v2
 
 FROM node:20-slim
 
@@ -27,12 +28,12 @@ COPY circuits/verification_key.json ./circuits/verification_key.json
 RUN pnpm build
 
 # Environment variables
-ENV PORT=3000
+ENV PORT=8080
 ENV WASM_PATH=/app/circuits/transfer.wasm
 ENV ZKEY_PATH=/app/circuits/transfer_final.zkey
 ENV VERIFICATION_KEY_PATH=/app/circuits/verification_key.json
 ENV SOLANA_RPC_URL=https://api.devnet.solana.com
 
-EXPOSE 3000
+EXPOSE 8080
 
 CMD ["node", "dist/index.js"]
