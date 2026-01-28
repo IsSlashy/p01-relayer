@@ -14,6 +14,7 @@ import { Connection, Keypair, PublicKey, Transaction } from '@solana/web3.js';
 import * as snarkjs from 'snarkjs';
 import winston from 'winston';
 import dotenv from 'dotenv';
+import bs58 from 'bs58';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -81,10 +82,17 @@ let relayerKeypair: Keypair;
 try {
   const secretKey = process.env.RELAYER_SECRET_KEY;
   if (secretKey) {
-    // Support both JSON array "[1,2,3]" and plain comma-separated "1,2,3"
-    const cleaned = secretKey.trim().replace(/^\[|\]$/g, '');
-    const bytes = cleaned.split(',').map((s: string) => parseInt(s.trim(), 10));
-    relayerKeypair = Keypair.fromSecretKey(Uint8Array.from(bytes));
+    const trimmed = secretKey.trim();
+    let keyBytes: Uint8Array;
+    if (trimmed.startsWith('[')) {
+      // JSON array format: [1,2,3,...]
+      const cleaned = trimmed.replace(/^\[|\]$/g, '');
+      keyBytes = Uint8Array.from(cleaned.split(',').map((s: string) => parseInt(s.trim(), 10)));
+    } else {
+      // Base58 format
+      keyBytes = bs58.decode(trimmed);
+    }
+    relayerKeypair = Keypair.fromSecretKey(keyBytes);
     logger.info(`Relayer wallet: ${relayerKeypair.publicKey.toBase58()}`);
   } else {
     logger.warn('No RELAYER_SECRET_KEY provided, using random keypair (for testing only)');
@@ -92,7 +100,8 @@ try {
   }
 } catch (e) {
   logger.error('Failed to load relayer keypair:', e);
-  process.exit(1);
+  logger.warn('Falling back to random keypair');
+  relayerKeypair = Keypair.generate();
 }
 
 // Express app setup
