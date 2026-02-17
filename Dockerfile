@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /build
 
-# Copy cargo config (forces GNU linker on Linux to fix wasmer compat)
+# Copy cargo config (probe-stack=call for Rust 1.85+ / wasmer compat)
 COPY prover/.cargo/ ./.cargo/
 
 # Copy prover source
@@ -22,7 +22,9 @@ COPY prover/Cargo.toml prover/Cargo.lock* ./
 COPY prover/src/ ./src/
 
 # Build release binary
-# Note: .cargo/config.toml sets -fuse-ld=bfd to avoid lld __rust_probestack issue
+# Note: .cargo/config.toml sets -C probe-stack=call because Rust 1.85+ uses
+# inline stack probing by default, removing __rust_probestack symbol that
+# wasmer_vm still references.
 RUN cargo build --release && ls -la target/release/p01-prover
 
 # =============================================================================

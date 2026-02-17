@@ -1,3 +1,4 @@
-# Force GNU linker (bfd) on Linux — lld drops wasmer's __rust_probestack symbol
+# Force call-based stack probing — Rust 1.85+ uses inline probing by default,
+# which removes the __rust_probestack symbol. wasmer_vm still references it.
 [target.x86_64-unknown-linux-gnu]
-rustflags = ["-C", "link-arg=-fuse-ld=bfd"]
+rustflags = ["-C", "probe-stack=call"]
