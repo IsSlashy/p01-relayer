@@ -10,6 +10,7 @@ FROM rust:latest AS rust-builder
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
+    binutils \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
@@ -18,7 +19,10 @@ WORKDIR /build
 COPY prover/Cargo.toml prover/Cargo.lock* ./
 COPY prover/src/ ./src/
 
-# Build release binary (optimized: LTO + single codegen unit)
+# Build release binary
+# Force GNU linker (bfd) instead of lld — wasmer's __rust_probestack
+# symbol is incompatible with lld (Rust 1.85+ default on Linux)
+ENV RUSTFLAGS="-C link-arg=-fuse-ld=bfd"
 RUN cargo build --release
 
 # =============================================================================
