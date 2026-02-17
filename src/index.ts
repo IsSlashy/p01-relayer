@@ -32,10 +32,16 @@ const logger = winston.createLogger({
   ],
 });
 
+// Helius RPC (if configured) for better performance
+const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
+const DEFAULT_RPC = HELIUS_API_KEY
+  ? `https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`
+  : 'https://api.devnet.solana.com';
+
 // Configuration
 const CONFIG = {
   port: parseInt(process.env.PORT || '3000'),
-  rpcUrl: process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com',
+  rpcUrl: process.env.SOLANA_RPC_URL || DEFAULT_RPC,
   programId: new PublicKey(process.env.ZK_PROGRAM_ID || '8dK17NxQUFPWsLg7eJphiCjSyVfBk2ywC5GU6ctK4qrY'),
   feeRecipient: process.env.FEE_RECIPIENT_PUBKEY,
   feeBps: parseInt(process.env.FEE_BPS || '50'), // 0.5% default - covers relayer gas costs
@@ -103,13 +109,47 @@ try {
 
 // Express app setup
 const app = express();
-app.use(cors()); // Enable CORS for mobile app
+app.use(cors({
+  origin: [
+    'https://protocol-01.vercel.app',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://localhost:8081',
+  ],
+}));
 app.use(express.json({ limit: '10mb' })); // Increased limit for proof inputs
+
+// TODO: Add rate limiting - install express-rate-limit and apply:
+//   /prove endpoint: 5 requests per minute
+//   /relay/* endpoints: 20 requests per minute
+// Example: import rateLimit from 'express-rate-limit';
+//   const proveLimiter = rateLimit({ windowMs: 60000, max: 5 });
+//   const relayLimiter = rateLimit({ windowMs: 60000, max: 20 });
+//   app.use('/prove', proveLimiter);
+//   app.use('/relay', relayLimiter);
 
 /**
  * Health check endpoint
  */
-app.get('/health', (req, res) => {
+app.get('/health', async (req, res) => {
+  // Check Rust prover health
+  const rustProverUrl = process.env.RUST_PROVER_URL || 'http://localhost:3001';
+  let rustProverStatus = 'unknown';
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+    const r = await fetch(`${rustProverUrl}/health`, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (r.ok) {
+      const data = await r.json() as any;
+      rustProverStatus = data.proverReady ? 'ready' : 'degraded';
+    } else {
+      rustProverStatus = 'error';
+    }
+  } catch {
+    rustProverStatus = 'offline';
+  }
+
   res.json({
     status: 'ok',
     relayer: relayerKeypair.publicKey.toBase58(),
@@ -118,6 +158,7 @@ app.get('/health', (req, res) => {
     zkVerification: verificationKey ? 'enabled' : 'disabled (mock)',
     vkProtocol: verificationKey?.protocol || null,
     vkNPublic: verificationKey?.nPublic || null,
+    rustProver: rustProverStatus,
   });
 });
 
@@ -181,6 +222,60 @@ app.post('/prove', async (req, res) => {
       inputKeys: Object.keys(inputs),
     });
 
+    // Strategy: Try Rust prover first, fall back to snarkjs
+    // 1. Rust native prover (localhost:3001) — fast (~3-8s)
+    // 2. snarkjs local (last resort) — slow (30-120s)
+
+    const rustProverUrl = process.env.RUST_PROVER_URL || 'http://localhost:3001';
+
+    // --- Attempt 1: Rust native prover ---
+    try {
+      logger.info(`[${reqId}] Trying Rust prover at ${rustProverUrl}...`);
+      const rustStart = Date.now();
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60000); // 60s timeout
+
+      const rustResponse = await fetch(`${rustProverUrl}/prove`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inputs }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (rustResponse.ok) {
+        const result = await rustResponse.json() as any;
+        if (result.success && result.proof) {
+          const totalTime = Date.now() - startTime;
+          logger.info(`[${reqId}] Rust prover succeeded`, {
+            proofTimeMs: result.proofTimeMs,
+            totalTimeMs: totalTime,
+            publicSignalsCount: result.publicSignals?.length,
+            prover: 'rust-native',
+          });
+
+          return res.json({
+            success: true,
+            proof: result.proof,
+            publicSignals: result.publicSignals,
+            proofTimeMs: result.proofTimeMs,
+            totalTimeMs: totalTime,
+            prover: 'rust-native',
+          });
+        }
+      }
+
+      const rustError = await rustResponse.text().catch(() => 'unknown');
+      logger.warn(`[${reqId}] Rust prover returned non-OK (${rustResponse.status}): ${rustError}`);
+    } catch (rustErr: any) {
+      logger.warn(`[${reqId}] Rust prover unavailable: ${rustErr.message}`);
+    }
+
+    // --- Attempt 2: snarkjs fallback ---
+    logger.info(`[${reqId}] Falling back to snarkjs...`);
+
     // Check if circuit files exist
     if (!fs.existsSync(CONFIG.wasmPath)) {
       logger.error(`WASM file not found at ${CONFIG.wasmPath}`);
@@ -205,7 +300,7 @@ app.post('/prove', async (req, res) => {
       }
     }
 
-    logger.info(`[${reqId}] Starting proof generation...`);
+    logger.info(`[${reqId}] Starting snarkjs proof generation...`);
     const proofStart = Date.now();
 
     // Generate proof using snarkjs
@@ -218,10 +313,11 @@ app.post('/prove', async (req, res) => {
     const proofTime = Date.now() - proofStart;
     const totalTime = Date.now() - startTime;
 
-    logger.info(`[${reqId}] Proof generated successfully`, {
+    logger.info(`[${reqId}] snarkjs proof generated successfully`, {
       proofTimeMs: proofTime,
       totalTimeMs: totalTime,
       publicSignalsCount: publicSignals.length,
+      prover: 'snarkjs',
     });
 
     res.json({
@@ -230,6 +326,7 @@ app.post('/prove', async (req, res) => {
       publicSignals,
       proofTimeMs: proofTime,
       totalTimeMs: totalTime,
+      prover: 'snarkjs',
     });
 
   } catch (e: any) {
@@ -786,8 +883,8 @@ async function verifyProofOffChain(proof: any, publicInputs: string[]): Promise<
   try {
     // Check if we have a verification key loaded
     if (!verificationKey) {
-      logger.warn('No verification key loaded - using mock verification (INSECURE)');
-      return true; // Fallback for development
+      logger.error('No verification key loaded - rejecting proof (verification key required)');
+      return false;
     }
 
     // Validate proof format
@@ -863,7 +960,7 @@ app.listen(CONFIG.port, () => {
 // =============================================================================
 
 const SUBSCRIPTION_PROGRAM_ID = new PublicKey(
-  process.env.SUBSCRIPTION_PROGRAM_ID || 'Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS'
+  process.env.SUBSCRIPTION_PROGRAM_ID || '5kDjD9LSB1j8V6yKsZLC9NmnQ11PPvAY6Ryz4ucRC5Pt'
 );
 
 // Subscription account structure (matches Anchor)
