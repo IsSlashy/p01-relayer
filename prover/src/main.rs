@@ -2,6 +2,18 @@ mod prover;
 mod serialize;
 mod types;
 
+// Provide __rust_probestack stub for wasmer_vm compatibility on x86_64 Linux.
+// Rust 1.85+ uses inline stack probing and no longer emits this symbol in
+// compiler_builtins, but wasmer_vm still references it. The symbol is never
+// actually called (inline probing handles it), so a simple ret suffices.
+#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+core::arch::global_asm!(
+    ".globl __rust_probestack",
+    ".type __rust_probestack, @function",
+    "__rust_probestack:",
+    "ret",
+);
+
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
