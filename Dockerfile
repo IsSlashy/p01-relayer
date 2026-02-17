@@ -10,20 +10,20 @@ FROM rust:latest AS rust-builder
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
-    binutils \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
+
+# Copy cargo config (forces GNU linker on Linux to fix wasmer compat)
+COPY prover/.cargo/ ./.cargo/
 
 # Copy prover source
 COPY prover/Cargo.toml prover/Cargo.lock* ./
 COPY prover/src/ ./src/
 
 # Build release binary
-# Force GNU linker (bfd) instead of lld — wasmer's __rust_probestack
-# symbol is incompatible with lld (Rust 1.85+ default on Linux)
-ENV RUSTFLAGS="-C link-arg=-fuse-ld=bfd"
-RUN cargo build --release
+# Note: .cargo/config.toml sets -fuse-ld=bfd to avoid lld __rust_probestack issue
+RUN cargo build --release && ls -la target/release/p01-prover
 
 # =============================================================================
 # Stage 2: Node.js relayer + Rust prover binary

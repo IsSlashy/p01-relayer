@@ -1,0 +1,3 @@
+# Force GNU linker (bfd) on Linux — lld drops wasmer's __rust_probestack symbol
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=bfd"]
