@@ -34,7 +34,7 @@ impl ProverContext {
         // Load R1CS to get constraint count
         info!("Loading circuit config (WASM + R1CS)...");
         let cfg = CircomConfig::<Fr>::new(wasm_path, r1cs_path)
-            .context("Failed to load CircomConfig (WASM + R1CS)")?;
+            .map_err(|e| anyhow::anyhow!("Failed to load CircomConfig (WASM + R1CS): {e:#}"))?;
         let num_constraints = cfg.r1cs.constraints.len();
         // Drop cfg — we'll reload it per-proof
         drop(cfg);
@@ -46,7 +46,7 @@ impl ProverContext {
                     .with_context(|| format!("Cannot open zkey: {}", zkey_path.display()))?,
             ),
         )
-        .context("Failed to read zkey")?;
+        .map_err(|e| anyhow::anyhow!("Failed to read zkey: {e}"))?;
 
         let vk = params.vk.clone();
 
@@ -78,7 +78,7 @@ impl ProverContext {
     ) -> Result<(Proof<Bn254>, Vec<Fr>)> {
         // Reload circuit config (WASM + R1CS) — fast
         let cfg = CircomConfig::<Fr>::new(&self.wasm_path, &self.r1cs_path)
-            .context("Failed to reload CircomConfig for proving")?;
+            .map_err(|e| anyhow::anyhow!("Failed to reload CircomConfig: {e:#}"))?;
 
         // Build witness
         let mut builder = CircomBuilder::new(cfg);
@@ -89,7 +89,7 @@ impl ProverContext {
             }
         }
 
-        let circuit = builder.build().context("Failed to build witness")?;
+        let circuit = builder.build().map_err(|e| anyhow::anyhow!("Failed to build witness: {e:#}"))?;
         let public_inputs = circuit.get_public_inputs().unwrap_or_default();
 
         info!(

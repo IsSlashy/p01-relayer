@@ -15,7 +15,7 @@ use axum::{
 };
 use tokio::sync::Semaphore;
 use tower_http::cors::CorsLayer;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::prover::ProverContext;
 use crate::types::*;
@@ -251,7 +251,7 @@ async fn verify_handler(
         .map(|s| {
             use ark_ff::PrimeField;
             ark_bn254::Fr::from_bigint(
-                s.parse().map_err(|e| anyhow::anyhow!("invalid public signal: {e}"))?,
+                s.parse().map_err(|_| anyhow::anyhow!("invalid public signal"))?,
             )
             .ok_or_else(|| anyhow::anyhow!("public signal not in field"))
         })
