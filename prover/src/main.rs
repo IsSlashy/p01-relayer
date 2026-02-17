@@ -122,7 +122,7 @@ async fn prove_handler(
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let total_start = Instant::now();
 
-    let prover = state.prover.as_ref().ok_or_else(|| {
+    let _prover = state.prover.as_ref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(ErrorResponse {

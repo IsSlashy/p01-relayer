@@ -48,6 +48,5 @@ anyhow = "1"
 
 [profile.release]
 opt-level = 3
-lto = "fat"
-codegen-units = 1
+lto = "thin"
 strip = true
