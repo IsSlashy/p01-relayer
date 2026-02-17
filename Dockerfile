@@ -5,7 +5,7 @@
 # =============================================================================
 # Stage 1: Build Rust native Groth16 prover
 # =============================================================================
-FROM rust:latest AS rust-builder
+FROM rust:1.84-slim-bookworm AS rust-builder
 
 RUN apt-get update && apt-get install -y \
     pkg-config \
@@ -14,17 +14,13 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /build
 
-# Copy cargo config (probe-stack=call for Rust 1.85+ / wasmer compat)
-COPY prover/.cargo/ ./.cargo/
-
 # Copy prover source
 COPY prover/Cargo.toml prover/Cargo.lock* ./
 COPY prover/src/ ./src/
 
 # Build release binary
-# Note: .cargo/config.toml sets -C probe-stack=call because Rust 1.85+ uses
-# inline stack probing by default, removing __rust_probestack symbol that
-# wasmer_vm still references.
+# Pinned to Rust 1.84 because 1.85+ removed __rust_probestack symbol
+# (inline probing) which wasmer_vm still references.
 RUN cargo build --release && ls -la target/release/p01-prover
 
 # =============================================================================
