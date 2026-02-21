@@ -41,10 +41,13 @@ const DEFAULT_RPC = HELIUS_API_KEY
   : 'https://api.devnet.solana.com';
 
 // Configuration
+// The actual deployed program ID on devnet — env var override only if explicitly correct
+const ZK_PROGRAM_ID = '8dK17NxQUFPWsLg7eJphiCjSyVfBk2ywC5GU6ctK4qrY';
+
 const CONFIG = {
   port: parseInt(process.env.PORT || '3000'),
   rpcUrl: process.env.SOLANA_RPC_URL || DEFAULT_RPC,
-  programId: new PublicKey(process.env.ZK_PROGRAM_ID || '8dK17NxQUFPWsLg7eJphiCjSyVfBk2ywC5GU6ctK4qrY'),
+  programId: new PublicKey(ZK_PROGRAM_ID),
   feeRecipient: process.env.FEE_RECIPIENT_PUBKEY,
   feeBps: parseInt(process.env.FEE_BPS || '50'), // 0.5% default - covers relayer gas costs
   maxPendingTx: parseInt(process.env.MAX_PENDING_TX || '100'),
