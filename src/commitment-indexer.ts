@@ -196,49 +196,60 @@ export class CommitmentIndexer {
   private async scanHistory(): Promise<void> {
     this.logger.info('[Indexer] Scanning transaction history...');
 
-    // Fetch all signatures
+    // Fetch all signatures (with delay between paginated calls)
     let allSignatures: Array<{ signature: string; slot: number }> = [];
     let lastSig: string | undefined;
 
     while (true) {
-      const batch = await this.connection.getSignaturesForAddress(
-        this.merkleTreePDA,
-        { limit: 100, before: lastSig }
-      );
-      if (batch.length === 0) break;
+      try {
+        const batch = await this.connection.getSignaturesForAddress(
+          this.merkleTreePDA,
+          { limit: 100, before: lastSig }
+        );
+        if (batch.length === 0) break;
 
-      allSignatures.push(
-        ...batch.filter(s => !s.err).map(s => ({ signature: s.signature, slot: s.slot }))
-      );
-      lastSig = batch[batch.length - 1].signature;
+        allSignatures.push(
+          ...batch.filter(s => !s.err).map(s => ({ signature: s.signature, slot: s.slot }))
+        );
+        lastSig = batch[batch.length - 1].signature;
 
-      if (allSignatures.length > 5000) break; // safety limit
+        if (allSignatures.length > 5000) break; // safety limit
+
+        // Delay between paginated calls to avoid rate limiting
+        await new Promise(r => setTimeout(r, 1000));
+      } catch (e: any) {
+        if (e?.message?.includes('429') || e?.message?.includes('rate')) {
+          this.logger.warn('[Indexer] Rate limited on getSignatures, waiting 5s...');
+          await new Promise(r => setTimeout(r, 5000));
+        } else {
+          throw e;
+        }
+      }
     }
 
     // Sort chronologically (oldest first)
     allSignatures.sort((a, b) => a.slot - b.slot);
     this.logger.info(`[Indexer] Found ${allSignatures.length} signatures to process`);
 
-    // Process in batches for efficiency
-    const BATCH_SIZE = 20;
-    for (let i = 0; i < allSignatures.length; i += BATCH_SIZE) {
-      const batch = allSignatures.slice(i, i + BATCH_SIZE);
-
-      // Fetch transactions in parallel within batch
-      const txPromises = batch.map(({ signature }) =>
-        this.fetchTxWithRetry(signature).catch(() => null)
-      );
-      const txResults = await Promise.all(txPromises);
-
-      for (const tx of txResults) {
+    // Process sequentially to avoid rate limiting on public RPC
+    let processed = 0;
+    for (const { signature } of allSignatures) {
+      try {
+        const tx = await this.fetchTxWithRetry(signature);
         if (tx?.meta?.logMessages) {
           this.parseTxCommitments(tx);
         }
-      }
+        processed++;
 
-      // Small delay between batches to avoid rate limiting
-      if (i + BATCH_SIZE < allSignatures.length) {
-        await new Promise(r => setTimeout(r, 200));
+        // Log progress every 10 transactions
+        if (processed % 10 === 0) {
+          this.logger.info(`[Indexer] Progress: ${processed}/${allSignatures.length} txs, ${this.commitments.size} commitments`);
+        }
+
+        // Delay between each transaction fetch (public RPC = ~10 req/s limit)
+        await new Promise(r => setTimeout(r, 500));
+      } catch (e: any) {
+        this.logger.warn(`[Indexer] Failed to process tx ${signature.slice(0, 16)}...: ${e.message}`);
       }
     }
 
@@ -394,7 +405,7 @@ export class CommitmentIndexer {
   /**
    * Fetch a transaction with exponential backoff retry
    */
-  private async fetchTxWithRetry(sig: string, retries = 3): Promise<any> {
+  private async fetchTxWithRetry(sig: string, retries = 5): Promise<any> {
     for (let i = 0; i < retries; i++) {
       try {
         const tx = await this.connection.getTransaction(sig, {
@@ -402,8 +413,9 @@ export class CommitmentIndexer {
         });
         return tx;
       } catch (e: any) {
-        if (e?.message?.includes('429') || e?.message?.includes('rate')) {
-          const delay = Math.pow(2, i) * 1000;
+        if (e?.message?.includes('429') || e?.message?.includes('rate') || e?.message?.includes('Too many')) {
+          const delay = Math.pow(2, i) * 2000; // 2s, 4s, 8s, 16s, 32s
+          this.logger.warn(`[Indexer] Rate limited, waiting ${delay}ms (attempt ${i + 1}/${retries})`);
           await new Promise(r => setTimeout(r, delay));
         } else {
           throw e;
