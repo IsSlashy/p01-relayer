@@ -134,7 +134,7 @@ async fn prove_handler(
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let total_start = Instant::now();
 
-    let _prover = state.prover.as_ref().ok_or_else(|| {
+    let prover = state.prover.as_ref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(ErrorResponse {
@@ -207,6 +207,23 @@ async fn prove_handler(
 
     let (proof, public_inputs) = result;
     let proof_time_ms = proof_start.elapsed().as_millis() as u64;
+
+    // Self-verify the proof before returning (catches circuit/witness bugs immediately)
+    let self_verified = match prover.verify(&proof, &public_inputs) {
+        Ok(valid) => {
+            if valid {
+                info!("Self-verification: PASS");
+            } else {
+                warn!("Self-verification: FAIL — proof is invalid!");
+            }
+            valid
+        }
+        Err(e) => {
+            warn!("Self-verification error: {e}");
+            false
+        }
+    };
+
     let total_time_ms = total_start.elapsed().as_millis() as u64;
 
     // Convert to snarkjs format
@@ -214,10 +231,11 @@ async fn prove_handler(
     let public_signals = serialize::public_signals_to_strings(&public_inputs);
 
     info!(
-        "Proof generated in {}ms (total {}ms), {} public signals",
+        "Proof generated in {}ms (total {}ms), {} public signals, verified={}",
         proof_time_ms,
         total_time_ms,
-        public_signals.len()
+        public_signals.len(),
+        self_verified
     );
 
     Ok(Json(ProveResponse {
@@ -226,6 +244,7 @@ async fn prove_handler(
         public_signals,
         proof_time_ms,
         total_time_ms,
+        self_verified: Some(self_verified),
     }))
 }
 
