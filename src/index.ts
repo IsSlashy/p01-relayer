@@ -152,6 +152,10 @@ const commitmentIndexer = new CommitmentIndexer(
   logger
 );
 
+logger.info(`[Indexer] SOL_MINT: ${SOL_MINT.toBase58()}`);
+logger.info(`[Indexer] Pool PDA: ${indexerPoolPDA.toBase58()}`);
+logger.info(`[Indexer] MerkleTree PDA: ${indexerMerkleTreePDA.toBase58()}`);
+
 // Start indexer in background (non-blocking)
 commitmentIndexer.start().catch(e => {
   logger.error('[Indexer] Failed to start:', e);
@@ -189,6 +193,51 @@ app.get('/pool/commitments', (req, res) => {
     root: commitmentIndexer.root,
     leafCount: commitmentIndexer.leafCount,
   });
+});
+
+/**
+ * GET /pool/debug - Debug PDA derivation and on-chain state
+ */
+app.get('/pool/debug', async (req, res) => {
+  try {
+    const poolAccount = await connection.getAccountInfo(indexerPoolPDA);
+    const merkleAccount = await connection.getAccountInfo(indexerMerkleTreePDA);
+
+    let merkleData: any = null;
+    if (merkleAccount) {
+      const data = merkleAccount.data;
+      const rootBytes = data.slice(8 + 32, 8 + 32 + 32);
+      let rootBigInt = BigInt(0);
+      for (let i = 31; i >= 0; i--) {
+        rootBigInt = (rootBigInt << BigInt(8)) | BigInt(rootBytes[i]);
+      }
+      const leafCount = Number(data.readBigUInt64LE(8 + 32 + 32));
+
+      merkleData = {
+        dataLength: data.length,
+        owner: merkleAccount.owner.toBase58(),
+        root: rootBigInt.toString(),
+        leafCount,
+        firstBytes: Buffer.from(data.slice(0, 80)).toString('hex'),
+      };
+    }
+
+    res.json({
+      solMint: SOL_MINT.toBase58(),
+      poolPDA: indexerPoolPDA.toBase58(),
+      merkleTreePDA: indexerMerkleTreePDA.toBase58(),
+      programId: CONFIG.programId.toBase58(),
+      poolAccountExists: !!poolAccount,
+      poolAccountOwner: poolAccount?.owner.toBase58() || null,
+      merkleAccountExists: !!merkleAccount,
+      merkleData,
+      indexerStatus: commitmentIndexer.status,
+      indexerLeafCount: commitmentIndexer.leafCount,
+      indexerRoot: commitmentIndexer.root,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 /**
