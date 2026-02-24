@@ -48,11 +48,19 @@ RUN pnpm install --frozen-lockfile || pnpm install
 COPY src/ ./src/
 COPY tsconfig.json ./
 
-# Copy circuit files
+# Copy circuit files — transfer (shielded pool)
 COPY circuits/transfer.wasm ./circuits/transfer.wasm
 COPY circuits/transfer_final.zkey ./circuits/transfer_final.zkey
 COPY circuits/verification_key.json ./circuits/verification_key.json
 COPY circuits/transfer.r1cs ./circuits/transfer.r1cs
+
+# Copy circuit files — zkSPL (confidential balances)
+COPY circuits/confidential_balance.wasm ./circuits/confidential_balance.wasm
+COPY circuits/confidential_balance_final.zkey ./circuits/confidential_balance_final.zkey
+COPY circuits/confidential_balance.r1cs ./circuits/confidential_balance.r1cs
+COPY circuits/balance_proof.wasm ./circuits/balance_proof.wasm
+COPY circuits/balance_proof_final.zkey ./circuits/balance_proof_final.zkey
+COPY circuits/balance_proof.r1cs ./circuits/balance_proof.r1cs
 
 # Build TypeScript
 RUN pnpm build
@@ -75,6 +83,13 @@ ENV CIRCUIT_R1CS_PATH=/app/circuits/transfer.r1cs
 ENV CIRCUIT_ZKEY_PATH=/app/circuits/transfer_final.zkey
 ENV RUST_PROVER_URL=http://localhost:3001
 ENV SOLANA_RPC_URL=https://api.devnet.solana.com
+# zkSPL circuit paths for Rust prover
+ENV ZKSPL_WASM_PATH=/app/circuits/confidential_balance.wasm
+ENV ZKSPL_R1CS_PATH=/app/circuits/confidential_balance.r1cs
+ENV ZKSPL_ZKEY_PATH=/app/circuits/confidential_balance_final.zkey
+ENV BALANCE_PROOF_WASM_PATH=/app/circuits/balance_proof.wasm
+ENV BALANCE_PROOF_R1CS_PATH=/app/circuits/balance_proof.r1cs
+ENV BALANCE_PROOF_ZKEY_PATH=/app/circuits/balance_proof_final.zkey
 
 EXPOSE 8080
 
